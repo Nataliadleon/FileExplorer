@@ -9,18 +9,24 @@ namespace FileExplorer.Services;
 public class FileOpenerService
 {
     // Extensiones manejadas con visualizadores integrados
+
     private static readonly HashSet<string> ImageExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".bmp", ".gif" };
+        new(StringComparer.OrdinalIgnoreCase)
+        { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".tif", ".webp", ".ico", ".heic" };
 
     private static readonly HashSet<string> TextExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".txt", ".json", ".xml", ".csv", ".log", ".md", ".cs", ".js", ".html", ".htm", ".py" };
+        new(StringComparer.OrdinalIgnoreCase)
+        { ".txt", ".json", ".xml", ".csv", ".log", ".md", ".cs", ".js", ".ts",
+          ".html", ".htm", ".py", ".css", ".yaml", ".yml", ".ini", ".bat", ".sh",
+          ".java", ".cpp", ".c", ".h", ".sql", ".php", ".rb", ".go", ".rs" };
 
     private static readonly HashSet<string> AudioExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".mp3", ".wav", ".ogg", ".flac" };
+        new(StringComparer.OrdinalIgnoreCase)
+        { ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma" };
 
     private static readonly HashSet<string> VideoExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".avi", ".mkv", ".mov", ".wmv" };
-
+        new(StringComparer.OrdinalIgnoreCase)
+        { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".webm", ".flv", ".m4v" };
     // ─── API pública ─────────────────────────────────────────────────────────
 
     /// <summary>

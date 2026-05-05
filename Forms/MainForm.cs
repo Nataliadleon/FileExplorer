@@ -57,13 +57,24 @@ public class MainForm : Form
 
     // ─── Constructor ─────────────────────────────────────────────────────────
 
-    public MainForm()
+    public MainForm(string? startPath = null)
     {
         _smallIcons = IconHelper.BuildSmallImageList();
         _largeIcons = IconHelper.BuildLargeImageList();
         InitializeComponent();
         InitializeTreeView();
-        NavigateTo(_settings.LastPath);
+
+        // Arrancar en la ruta del usuario actual
+        string path = startPath
+            ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!Directory.Exists(path))
+            path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        NavigateTo(path);
+
+        // Mostrar usuario en el título
+        string userName = Environment.UserName;
+        Text = $"Explorador — {userName}";
     }
 
     // ─── Inicialización ───────────────────────────────────────────────────────
@@ -153,19 +164,44 @@ public class MainForm : Form
         mnuVer.DropDownItems.Add(new ToolStripSeparator());
         AddMenuItem(mnuVer, "🌙  Tema oscuro / claro", (_, _) => ToggleTheme());
 
+        // ─── Archivos ocultos (NUEVO) ────────────────────────────────────────────
+        mnuVer.DropDownItems.Add(new ToolStripSeparator());
+        var mnuHidden = new ToolStripMenuItem("👁  Mostrar archivos ocultos");
+        mnuHidden.Click += (_, _) =>
+        {
+            _settings.ShowHiddenFiles = !_settings.ShowHiddenFiles;
+            mnuHidden.Checked = _settings.ShowHiddenFiles;
+            RefreshDirectory();
+        };
+        mnuVer.DropDownItems.Add(mnuHidden);
+
         var mnuHerr = new ToolStripMenuItem("Herramientas");
         AddMenuItem(mnuHerr, "📊  Gráfica de espacio", (_, _) => ShowSpaceChart());
+
+        // ─── Auto-inicio (NUEVO) — va aquí, ANTES del AddRange ───────────────────
+        var mnuAutoStart = new ToolStripMenuItem("🚀  Iniciar con Windows")
+        {
+            Checked = Program.IsAutoStartEnabled()
+        };
+        mnuAutoStart.Click += (_, _) =>
+        {
+            bool enable = !Program.IsAutoStartEnabled();
+            Program.SetAutoStart(enable);
+            mnuAutoStart.Checked = enable;
+        };
+        mnuHerr.DropDownItems.Add(new ToolStripSeparator());
+        mnuHerr.DropDownItems.Add(mnuAutoStart);
 
         var mnuAyuda = new ToolStripMenuItem("Ayuda");
         AddMenuItem(mnuAyuda, "ℹ  Acerca de", (_, _) => ShowAbout());
 
+        // AddRange al final cuando todas las variables ya existen
         _menuStrip.Items.AddRange(new ToolStripItem[]
         {
-            mnuArchivo, mnuVer, mnuHerr, mnuAyuda
+        mnuArchivo, mnuVer, mnuHerr, mnuAyuda
         });
         Controls.Add(_menuStrip);
     }
-
     private static void AddMenuItem(ToolStripMenuItem parent, string text, EventHandler handler)
     {
         var m = new ToolStripMenuItem(text);
@@ -179,6 +215,7 @@ public class MainForm : Form
         m.Click += handler;
         parent.DropDownItems.Add(m);
     }
+
 
     // ─── ToolStrip ────────────────────────────────────────────────────────────
 
@@ -395,6 +432,93 @@ public class MainForm : Form
         AddCtxItem(ctx, "📊 Uso de espacio", (_, _) => ShowSpaceChart());
         AddCtxItem(ctx, "ℹ Propiedades", (_, _) => ShowItemProperties());
         _listView.ContextMenuStrip = ctx;
+
+        // ─── Drag & Drop ──────────────────────────────────────────────────────
+        _listView.AllowDrop = true;
+        _listView.ItemDrag += ListView_ItemDrag;
+        _listView.DragEnter += ListView_DragEnter;
+        _listView.DragDrop += ListView_DragDrop;
+    }
+    // ─── Drag & Drop ──────────────────────────────────────────────────────────
+
+    private void ListView_ItemDrag(object? sender, ItemDragEventArgs e)
+    {
+        // Recopilar rutas de todos los ítems seleccionados
+        var paths = _listView.SelectedItems
+            .Cast<ListViewItem>()
+            .Select(i => (i.Tag as FileSystemItem)?.FullPath)
+            .Where(p => p != null)
+            .Select(p => p!)
+            .ToArray();
+
+        if (paths.Length > 0)
+        {
+            var data = new DataObject(DataFormats.FileDrop, paths);
+            _listView.DoDragDrop(data, DragDropEffects.Move | DragDropEffects.Copy);
+        }
+    }
+
+    private void ListView_DragEnter(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            e.Effect = DragDropEffects.Move;
+        else
+            e.Effect = DragDropEffects.None;
+    }
+
+    private void ListView_DragDrop(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetData(DataFormats.FileDrop) is not string[] paths) return;
+
+        // Calcular destino: carpeta bajo el cursor, o directorio actual
+        var pt = _listView.PointToClient(new Point(e.X, e.Y));
+        var hit = _listView.HitTest(pt);
+        string? destDir = null;
+
+        if (hit.Item?.Tag is FileSystemItem fi && fi.IsDirectory)
+            destDir = fi.FullPath;
+        else
+            destDir = _currentPath;
+
+        if (string.IsNullOrEmpty(destDir)) return;
+
+        foreach (var src in paths)
+        {
+            try
+            {
+                string dest = Path.Combine(destDir, Path.GetFileName(src));
+                if (src == dest) continue;
+
+                if (Directory.Exists(src))
+                {
+                    if (dest.StartsWith(src + Path.DirectorySeparatorChar))
+                    {
+                        MessageBox.Show("No se puede mover una carpeta dentro de sí misma.",
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        continue;
+                    }
+                    Directory.Move(src, dest);
+                }
+                else if (File.Exists(src))
+                {
+                    if (File.Exists(dest))
+                    {
+                        var r = MessageBox.Show($"'{Path.GetFileName(src)}' ya existe en destino. ¿Reemplazar?",
+                            "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                        if (r != DialogResult.Yes) continue;
+                        File.Delete(dest);
+                    }
+                    File.Move(src, dest);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al mover '{Path.GetFileName(src)}':\n{ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        RefreshDirectory();
     }
 
     private static void AddCtxItem(ContextMenuStrip ctx, string text, EventHandler h)
@@ -537,7 +661,7 @@ public class MainForm : Form
             _ => "*"
         };
 
-        var items = _fsService.GetItems(path, filter);
+        var items = _fsService.GetItems(path, filter, _settings.ShowHiddenFiles);
         items = SortItems(items);
 
         foreach (var item in items)
@@ -781,17 +905,8 @@ public class MainForm : Form
         var item = _listView.SelectedItems[0].Tag as FileSystemItem;
         if (item is null) return;
 
-        string info = item.IsDirectory
-            ? $"Nombre: {item.Name}\nRuta: {item.FullPath}\nArchivos: {item.ChildFileCount}\n" +
-              $"Subcarpetas: {item.ChildFolderCount}\nCreado: {FileSizeHelper.FormatDateLong(item.CreatedDate)}\n" +
-              $"Modificado: {FileSizeHelper.FormatDateLong(item.ModifiedDate)}"
-            : $"Nombre: {item.Name}\nRuta: {item.FullPath}\n" +
-              $"Tamaño: {FileSizeHelper.FormatSize(item.Size)} ({item.Size:N0} bytes)\n" +
-              $"Tipo: {item.FileType}\nCreado: {FileSizeHelper.FormatDateLong(item.CreatedDate)}\n" +
-              $"Modificado: {FileSizeHelper.FormatDateLong(item.ModifiedDate)}";
-
-        MessageBox.Show(info, $"Propiedades — {item.Name}",
-            MessageBoxButtons.OK, MessageBoxIcon.Information);
+        using var form = new PropertiesForm(item);
+        form.ShowDialog(this);
     }
 
     private void ShowSpaceChart()
