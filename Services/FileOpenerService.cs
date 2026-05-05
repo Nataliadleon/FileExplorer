@@ -9,6 +9,7 @@ namespace FileExplorer.Services;
 public class FileOpenerService
 {
     // Extensiones manejadas con visualizadores integrados
+    // REEMPLAZA las HashSet estáticas al inicio de la clase (sólo esas 4 líneas):
 
     private static readonly HashSet<string> ImageExtensions =
         new(StringComparer.OrdinalIgnoreCase)
@@ -104,7 +105,7 @@ public class FileOpenerService
     {
         try
         {
-            var form = new Forms.AudioPlayerForm(path);
+            var form = new Forms.AudioPlayerForm(new[] { path });
             form.Show(owner);
             return true;
         }

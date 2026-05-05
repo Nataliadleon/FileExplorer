@@ -443,57 +443,52 @@ public class MainForm : Form
 
     private void ListView_ItemDrag(object? sender, ItemDragEventArgs e)
     {
-        // Recopilar rutas de todos los ítems seleccionados
         var paths = _listView.SelectedItems
             .Cast<ListViewItem>()
             .Select(i => (i.Tag as FileSystemItem)?.FullPath)
-            .Where(p => p != null)
+            .Where(p => !string.IsNullOrEmpty(p))
             .Select(p => p!)
             .ToArray();
 
-        if (paths.Length > 0)
-        {
-            var data = new DataObject(DataFormats.FileDrop, paths);
-            _listView.DoDragDrop(data, DragDropEffects.Move | DragDropEffects.Copy);
-        }
+        if (paths.Length == 0) return;
+
+        var data = new DataObject();
+        data.SetData(DataFormats.FileDrop, paths);
+        _listView.DoDragDrop(data, DragDropEffects.Move | DragDropEffects.Copy);
     }
 
     private void ListView_DragEnter(object? sender, DragEventArgs e)
     {
-        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
-            e.Effect = DragDropEffects.Move;
-        else
-            e.Effect = DragDropEffects.None;
+        e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true
+            ? DragDropEffects.Move
+            : DragDropEffects.None;
     }
 
     private void ListView_DragDrop(object? sender, DragEventArgs e)
     {
         if (e.Data?.GetData(DataFormats.FileDrop) is not string[] paths) return;
 
-        // Calcular destino: carpeta bajo el cursor, o directorio actual
         var pt = _listView.PointToClient(new Point(e.X, e.Y));
         var hit = _listView.HitTest(pt);
-        string? destDir = null;
 
-        if (hit.Item?.Tag is FileSystemItem fi && fi.IsDirectory)
-            destDir = fi.FullPath;
-        else
-            destDir = _currentPath;
-
-        if (string.IsNullOrEmpty(destDir)) return;
+        string destDir = (hit.Item?.Tag is FileSystemItem fi && fi.IsDirectory)
+            ? fi.FullPath
+            : _currentPath;
 
         foreach (var src in paths)
         {
             try
             {
+                if (src == destDir) continue;
                 string dest = Path.Combine(destDir, Path.GetFileName(src));
-                if (src == dest) continue;
+
+                if (dest.Equals(src, StringComparison.OrdinalIgnoreCase)) continue;
 
                 if (Directory.Exists(src))
                 {
                     if (dest.StartsWith(src + Path.DirectorySeparatorChar))
                     {
-                        MessageBox.Show("No se puede mover una carpeta dentro de sí misma.",
+                        MessageBox.Show("No puedes mover una carpeta dentro de sí misma.",
                             "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         continue;
                     }
@@ -503,12 +498,12 @@ public class MainForm : Form
                 {
                     if (File.Exists(dest))
                     {
-                        var r = MessageBox.Show($"'{Path.GetFileName(src)}' ya existe en destino. ¿Reemplazar?",
+                        var r = MessageBox.Show(
+                            $"'{Path.GetFileName(src)}' ya existe. ¿Reemplazar?",
                             "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                         if (r != DialogResult.Yes) continue;
-                        File.Delete(dest);
                     }
-                    File.Move(src, dest);
+                    File.Move(src, dest, overwrite: true);
                 }
             }
             catch (Exception ex)
@@ -1012,5 +1007,28 @@ public class MainForm : Form
             case Keys.F5: RefreshDirectory(); return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+  
+    private void OpenAudioPlayer(string? specificFile = null)
+    {
+        // Recopilar todos los archivos de audio de la carpeta actual
+        var audioExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { ".mp3", ".flac", ".ogg", ".wav", ".aac", ".m4a", ".wma", ".opus" };
+
+        var filesInFolder = Directory.GetFiles(_currentPath)
+            .Where(f => audioExts.Contains(Path.GetExtension(f)))
+            .OrderBy(f => f)
+            .ToList();
+
+        var player = new AudioPlayerForm(filesInFolder);
+
+        // Si se abrió desde un archivo específico, saltar a él
+        if (specificFile != null)
+        {
+            int idx = filesInFolder.IndexOf(specificFile);
+            if (idx >= 0) player.PlayAt(idx);  // necesitas hacer PlayAt público
+        }
+
+        player.Show(this);
     }
 }
